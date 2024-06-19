@@ -1,0 +1,544 @@
+---
+openapi: "3.1.0"
+info: 
+  title: "One Interface API"
+  version: "0.1.0"
+  description: "One Interface collects data from your computer screen to build a truly personalized AI. It knows every word you've seen, every URL you've visited and every file you've given it. This data is stored securely on your computer."
+paths: 
+  /ping: 
+    get: 
+      summary: "Ping"
+      operationId: "ping_endpoint_ping_get"
+      responses: 
+        200: 
+          description: "Successful Response"
+          content: 
+            application/json: 
+              schema: 
+                type: object
+                properties: 
+                  message: 
+                    type: string
+                    example: "pong"
+                  extension_active: 
+                    type: boolean
+                    description: status of Chrome extension (used to crawl webpages and put their content into context for AI)
+  
+  /chat: 
+    post: 
+      summary: "Chat - Send message"
+      operationId: "chat_endpoint_chat_post"
+      description: |
+        Send a message to One AI considering the current context.
+        OpenAI API key required for GPT-4o.
+      requestBody: 
+        content: 
+          application/json: 
+            schema: 
+              type: object
+              properties:
+                message:
+                  type: string
+                  description: Message to the AI model
+                model:
+                  type: string
+                  description: \"gpt-4o\" or \"llama3:8b\"
+                selectedContexts:
+                  type: array
+                  items:
+                    type: string
+                  description: Array of names of selected contexts. Contexts are sets of files created by the user. When the user selects a context, AI prioritizes it in its responses.
+                copied_text:
+                  type: string
+                  description: Text in the user's clipboard. AI understands references to it, e.g. when the user asks something like "Summarize this text".
+                api_key:
+                  type: string
+                  description: API key for the OpenAI API. Not needed for llama3:8b.
+        required: "true"
+      responses: 
+        200: 
+          description: "Successful Response"
+          content: 
+            application/json: 
+              schema: 
+                type: object
+                properties: 
+                  retrieval_list: 
+                    type: array
+                    description: "Array of retrieval results. Used in the first streamed SSE response together with done=False"
+                    items: 
+                      type: object
+                      properties: 
+                        id: 
+                          type: string
+                        description: "Unique ID of the retrieval result in the Qdrant vector store"
+                        db_table: 
+                          type: string
+                          description: "DB table of the retrieval result. Either \"activity\" or \"sources\""
+                        row_id: 
+                          type: integer
+                          description: "Row ID of the retrieval result. Equivalent to row_id in ~/.one-interface/activity.db"
+                        window_name: 
+                          type: string
+                          description: "Window name of the retrieval result. See /get_last_activities for more details"
+                        window_owner: 
+                          type: string
+                          description: "Window owner of the retrieval result. See /get_last_activities for more details"
+                        file_path: 
+                          type: string
+                          description: "If using context, the file path of the retrieval result"
+                        url: 
+                          type: string
+                          description: "If result is a webpage captured by the browser extension, the URL of the retrieval result"
+                        timestamp: 
+                          type: number
+                          format: float
+                        date: 
+                          type: string
+                        source: 
+                          type: string
+                          description: "The source of the retrieval result. Either \"browser_extension\", \"file\", or same as db_table, i.e. \"activity\" or \"sources\""
+                        text: 
+                          type: string
+                          description: "Shortened retrieved text"
+                        long_text: 
+                          type: string
+                          description: "The long text of the retrieval result"
+                  delta: 
+                    type: string
+                    description: "Streaming word-by-word response. Used with done=False"
+                  response: 
+                    type: string
+                    description: "Full model response. Used in the last streamed SSE response together with done=True"
+                  done: 
+                    type: boolean
+                    description: "True if the streaming is done"
+        422: 
+          description: "Validation Error"
+          content: 
+            application/json: 
+              schema: 
+                $ref: "#/components/schemas/HTTPValidationError"
+  /chat/cancel: 
+    get: 
+      summary: "Chat - Cancel generation"
+      operationId: "cancel_streaming_chat_cancel_get"
+      responses: 
+        200: 
+          description: "Successful Response"
+          content: 
+            application/json: 
+              schema: 
+  /chat/reset: 
+    post: 
+      summary: "Chat Reset"
+      operationId: "chat_reset_endpoint_chat_reset_post"
+      responses: 
+        200: 
+          description: "Successful Response"
+          content: 
+            application/json: 
+              schema: 
+  /get_active_tabs: 
+    get: 
+      summary: "Get active browser tabs"
+      operationId: "get_active_tabs_endpoint_get_active_tabs_get"
+      description: Collected via [Chrome extension](https://chromewebstore.google.com/detail/one-connector/efppcjdbgpjghfojcmdmgaocfgonjepo).
+      responses: 
+        200: 
+          description: "Successful Response"
+          content: 
+            application/json: 
+              schema: 
+                type: array
+                items:
+                  type: string
+                  description: "Array of active browser tabs as URLs"
+  /get_last_activities: 
+    get: 
+      summary: "Get Last Activities Endpoint"
+      operationId: "get_last_activities_endpoint_get_last_activities_get"
+      parameters: 
+      - name: "n"
+        in: "query"
+        required: "false"
+        schema: 
+          type: "integer"
+          default: "50"
+          title: "N"
+      responses: 
+        200: 
+          description: "Successful Response"
+          content: 
+            application/json: 
+              schema: 
+                type: object
+                properties:
+                  id:
+                    type: integer
+                    description: "Unique identifier for the activity"
+                  timestamp:
+                    type: string
+                    format: date-time
+                    description: "Timestamp of the activity"
+                  window_id:
+                    type: integer
+                    description: "[MacOS window identifier](https://developer.apple.com/documentation/screencapturekit/scwindow/3916793-windowid) for the window where the activity occurred.
+                    -1 for activities captured by the browser extension"
+                  window_pid:
+                    type: integer
+                    description: "Process ID of the window where the activity occurred. Equivalent to the one shown in Activity Monitor.
+                    0 for activities captured by the browser extension"
+                  window_name:
+                    type: string
+                    description: "Name of the window (e.g. currently opened file name) or name of the app. Inconcistent between MacOS windows. Recommended: use together with window_owner"
+                  window_owner:
+                    type: string
+                    description: "Name of the window owner (most commonly, the app that launched the window). If captured by browser extension, this will be the URL starting with http:// or https://"
+                  window_text_clusters:
+                    type: array
+                    items:
+                      type: string
+                    description: "Text from the window clustered by One's clustering algorithm into meaningful chunks.
+                    Respects the logical structure of the text, e.g. different logical parts of an app will be separated into different clusters.
+                    If captured by browser extension, this will most commonly be one text cluster because it reads the whole HTML DOM.
+                    "
+        422: 
+          description: "Validation Error"
+          content: 
+            application/json: 
+              schema: 
+                $ref: "#/components/schemas/HTTPValidationError"
+  /get-files: 
+    post: 
+      summary: "Get Files"
+      operationId: "get_files_get_files_post"
+      responses: 
+        200: 
+          description: "Successful Response"
+          content: 
+            application/json: 
+              schema: 
+                type: array
+                description: List of all files used in all contexts
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: integer
+                      description: "ID of the file. Equivalent to row_id in the sources table of ~/.one-interface/activity.db"
+                    timestamp:
+                      type: string
+                      format: date-time
+                      description: "Timestamp when the file was added as part of a context"
+                    text:
+                      type: string
+                      description: "Full text of the file"
+                    source:
+                      type: string
+                      description: "File name"
+                    type:
+                      type: string
+                      description: "Always equal to \"file\""
+  /delete-file: 
+    delete: 
+      summary: "Delete File"
+      description: Delete file from Qdrant vector DB
+      operationId: "delete_file_delete_file_delete"
+      requestBody: 
+        content: 
+          application/json: 
+            schema: 
+              $ref: "#/components/schemas/File"
+        required: "true"
+      responses: 
+        200: 
+          description: "Successful Response"
+          content: 
+            application/json: 
+              schema: 
+        422: 
+          description: "Validation Error"
+          content: 
+            application/json: 
+              schema: 
+                $ref: "#/components/schemas/HTTPValidationError"
+  /index-file: 
+    post: 
+      summary: "Index File"
+      description: Add file to the Qdrant vector DB.
+      operationId: "index_file_endpoint_index_file_post"
+      requestBody: 
+        content: 
+          application/json: 
+            schema: 
+              $ref: "#/components/schemas/File"
+        required: "true"
+      responses: 
+        200: 
+          description: "Successful Response"
+          content: 
+            application/json: 
+              schema: 
+        422: 
+          description: "Validation Error"
+          content: 
+            application/json: 
+              schema: 
+                $ref: "#/components/schemas/HTTPValidationError"
+  /check-if-file-indexed: 
+    post: 
+      summary: "Check If File Indexed"
+      description: Check if a file is indexed in the Qdrant vector DB
+      operationId: "check_if_file_indexed_check_if_file_indexed_post"
+      requestBody: 
+        content: 
+          application/json: 
+            schema: 
+              $ref: "#/components/schemas/File"
+        required: "true"
+      responses: 
+        200: 
+          description: "Successful Response"
+          content: 
+            application/json: 
+              schema: 
+        422: 
+          description: "Validation Error"
+          content: 
+            application/json: 
+              schema: 
+                $ref: "#/components/schemas/HTTPValidationError"
+  /context/create: 
+    post: 
+      summary: "Create Context"
+      description: "Create a context from a set of files and/or folders. Read each file and index it (i.e. put it into Qdrant vector DB) to make sure One AI can refer to it."
+      operationId: "create_context_context_create_post"
+      requestBody: 
+        content: 
+          application/json: 
+            schema: 
+              $ref: "#/components/schemas/Context"
+        required: "true"
+      responses: 
+        200: 
+          description: "Successful Response"
+          content: 
+            application/json: 
+              schema: 
+        422: 
+          description: "Validation Error"
+          content: 
+            application/json: 
+              schema: 
+                $ref: "#/components/schemas/HTTPValidationError"
+  /context/cancel: 
+    get: 
+      summary: "Cancel Context Creation"
+      description: Stop context creation, e.g. if running for too long.
+      operationId: "cancel_context_context_cancel_get"
+      responses: 
+        200: 
+          description: "Successful Response"
+          content: 
+            application/json: 
+              schema: 
+  /context/status: 
+    post: 
+      summary: "Context Creation Status"
+      description: "Get the current progress of context creation."
+      operationId: "get_context_status_context_status_post"
+      responses: 
+        200: 
+          description: "Successful Response"
+          content: 
+            application/json: 
+              schema: 
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                      description: Name of the context
+                    indexed:
+                      type: integer
+                      description: Number of files indexed so far
+                    total:
+                      type: integer
+                      description: Total number of files to index
+                    current_file:
+                      type: string
+                      description: Current file being indexed
+                
+  /context/structure: 
+    get: 
+      summary: "Get Context Structure"
+      operationId: "get_context_structure_context_structure_get"
+      responses: 
+        200: 
+          description: "Successful Response"
+          content: 
+            application/json: 
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                      description: "Name of the context"
+                    selectedFolders:
+                      type: array
+                      items:
+                        type: string
+                      description: "List of selected folders"
+                    selectedFiles:
+                      type: array
+                      items:
+                        type: string
+                      description: "List of selected files"
+                    source_ids:
+                      type: array
+                      items:
+                        type: integer
+                      description: "Source IDs equivalent to row_ids in the sources table in ~/.one-interface/activity.db"
+components: 
+  schemas: 
+    Activities: 
+      properties: 
+        limit: 
+          anyOf: 
+          - type: "integer"
+          - type: "null"
+          title: "Limit"
+          default: "70"
+      type: "object"
+      title: "Activities"
+    Context: 
+      properties: 
+        name: 
+          type: "string"
+          title: "Name"
+        selectedFolders: 
+          items: 
+            type: "string"
+          type: "array"
+          title: "Selected folders"
+          nullable: true
+        selectedFiles: 
+          items: 
+            type: "string"
+          type: "array"
+          title: "Selected files"
+          nullable: true
+      type: "object"
+      required: 
+      - "name"
+      - "selectedFolders"
+      - "selectedFiles"
+      title: "Context"
+      description: "Multiple files and folders selected by the user to use as context in the chat with AI"
+    File: 
+      properties: 
+        file: 
+          type: "string"
+          title: "File"
+        parentFolder: 
+          anyOf: 
+          - type: "string"
+          - type: "null"
+          title: "Parentfolder"
+      type: "object"
+      required: 
+      - "file"
+      title: "File"
+    HTTPValidationError: 
+      properties: 
+        detail: 
+          items: 
+            $ref: "#/components/schemas/ValidationError"
+          type: "array"
+          title: "Detail"
+      type: "object"
+      title: "HTTPValidationError"
+    Message: 
+      properties: 
+        message: 
+          type: "string"
+          title: "Message"
+        model: 
+          type: "string"
+          title: "Model"
+          default: "gpt-4o"
+        selectedContexts: 
+          items: 
+            anyOf: 
+            - type: "object"
+            - type: "string"
+          type: "array"
+          title: "Selectedcontexts"
+          default: 
+        active_windows_meta: 
+          anyOf: 
+          - $ref: "#/components/schemas/WindowMeta"
+          - type: "null"
+          default: 
+        activatedWindowMeta: 
+          anyOf: 
+          - $ref: "#/components/schemas/WindowMeta"
+          - type: "null"
+          default: 
+        copied_text: 
+          type: "string"
+          title: "Copied Text"
+          default: ""
+        api_key: 
+          type: "string"
+          title: "Api Key"
+          default: ""
+      type: "object"
+      required: 
+      - "message"
+      title: "Message"
+    ValidationError: 
+      properties: 
+        loc: 
+          items: 
+            anyOf: 
+            - type: "string"
+            - type: "integer"
+          type: "array"
+          title: "Location"
+        msg: 
+          type: "string"
+          title: "Message"
+        type: 
+          type: "string"
+          title: "Error Type"
+      type: "object"
+      required: 
+      - "loc"
+      - "msg"
+      - "type"
+      title: "ValidationError"
+    WindowMeta: 
+      properties: 
+        window_owner: 
+          type: "string"
+          title: "Window Owner"
+          default: ""
+        window_name: 
+          type: "string"
+          title: "Window Name"
+          default: ""
+        window_number: 
+          type: "string"
+          title: "Window Number"
+          default: ""
+        text: 
+          type: "string"
+          title: "Text"
+          default: ""
+      type: "object"
+      title: "WindowMeta"
